@@ -26,7 +26,7 @@ The lab builds on:
 - [Lab 06: Working with S3](https://github.com/ksiller/lab-06-s3): your bucket holds the books
 - [Lab 07: EC2 and Lambda](https://github.com/ksiller/lab-07-ec2-lambda): the code you package, and the SSM parameter `mongodb_credentials`
 - [Lab 08: HPC](https://github.com/ksiller/lab-08-hpc): the `llm_analysis` fields in your documents
-- [Class 09: Containers](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md): Part 1 (building images, versions, and the build cache) and Part 3 (`wordcount`: installing a uv project, and credentials at run time)
+- [Class 09: Containers](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md): Part 2 (`my_image`: building images and new versions, `ENTRYPOINT` and `CMD`, and mounting a directory)
 
 ## What is in this repository
 
@@ -96,7 +96,7 @@ docker info
 If the output ends with an error such as `Cannot connect to the Docker daemon`, Rancher Desktop is not running yet, or it uses `containerd` instead of `dockerd (moby)` (**Preferences → Container Engine**). Also see the [Docker troubleshooting guide](https://github.com/ksiller/DS2022/blob/main/setup/Troubleshooting-Docker-Setup.md) in the DS2022 course repository.
 
 > [!NOTE]
-> **Still no working Docker on your computer?** Use an EC2 instance, as in [Class 09, Part 4: Docker on an EC2 instance](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#docker-on-an-ec2-instance), and clone your fork there. Every `docker` command then runs in the shell on the instance, with two differences: leave out `-v ~/.aws:/home/app/.aws:ro` and the three `-e` options (the container gets the role `LabRole` from the instance, and `analyze.py` reads the Atlas settings from SSM); and copy `results/` back to your computer with `scp` before you terminate the instance.
+> **Still no working Docker on your computer?** Use an EC2 instance, as in [Class 09, Part 3: Docker on an EC2 instance](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#docker-on-an-ec2-instance), and clone your fork there. Every `docker` command then runs in the shell on the instance, with two differences: leave out `-v ~/.aws:/home/app/.aws:ro` and the three `-e` options (the container gets the role `LabRole` from the instance, and `analyze.py` reads the Atlas settings from SSM); and copy `results/` back to your computer with `scp` before you terminate the instance.
 
 ### 3. AWS credentials, Atlas, and your Lab 07 resources
 
@@ -136,7 +136,7 @@ It prints `3`. If not, follow [MongoDB Atlas setup](https://github.com/ksiller/D
 
 ### Step 1: Write the `Dockerfile`
 
-Create a file named `Dockerfile` (no extension) in the top directory of your clone. It packages the code in `src/` with the packages in `uv.lock`. Two examples from Class 09 help you: `my_image` in Part 1 is built from a `Dockerfile` with one `FROM` line, and `wordcount/Dockerfile` in [Part 3](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#part-3-package-a-python-project-wordcount) shows how to install a uv project. `wordcount/Dockerfile` builds in two stages, with two `FROM` lines; your `Dockerfile` needs only one stage, with one `FROM` line. This project also differs from `wordcount` in two ways: its code is in `src/book_analysis/`, and `report.py` imports from `analyze.py` as `book_analysis.analyze`.
+Create a file named `Dockerfile` (no extension) in the top directory of your clone. It packages the code in `src/` with the packages in `uv.lock`. Your starting point is `my_image` from [Class 09, Part 2](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#part-2-docker-on-your-computer): a `Dockerfile` with one `FROM` line, `WORKDIR`, `ENTRYPOINT`, and `CMD`. New here: the image installs a Python uv project from `pyproject.toml` and `uv.lock`, and runs it as an ordinary user. The requirements table lists every instruction, with a hint for each. Keep in mind that the code is in `src/book_analysis/`, and that `report.py` imports from `analyze.py` as `book_analysis.analyze`.
 
 Your `Dockerfile` must:
 
@@ -146,17 +146,19 @@ Your `Dockerfile` must:
 | describe the image with the standard labels `title` (`book-analysis`), `description`, and `source` (the URL of **your fork**) | `LABEL org.opencontainers.image.title=...`; `source` says where the code is, and on `ghcr.io` it links the image to your repository |
 | copy the `uv` program from the official uv image, in a fixed version | `COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /bin/uv`; `--from` copies a file out of another image |
 | create an ordinary user named `app`, and work in the directory `/app` | `RUN useradd --create-home app`, then `WORKDIR /app` |
-| copy **only** `pyproject.toml` and `uv.lock` before the install, so that changing the code does not reinstall the packages | `COPY` the two files, then `RUN uv sync ...`; Class 09, Part 1.5 shows why |
+| copy **only** `pyproject.toml` and `uv.lock` before the install, so that changing the code does not reinstall the packages | `COPY` the two files, then `RUN uv sync ...`; Step 3 explains why |
 | install exactly the packages of `uv.lock`, without the project itself and without development tools | `uv sync` with `--frozen`, `--no-dev`, and `--no-install-project` installs into `/app/.venv`; add `--no-cache`, so that uv's download cache does not stay in the image |
 | copy the directory `src/` after the install | `COPY src/ ./src/` |
-| let Python find the packages and the code | `ENV` that puts `/app/.venv/bin` first in `PATH`, and sets `PYTHONPATH=/app/src`, so `import book_analysis` works |
-| run the program as the user `app`, not as root | `USER app`, after the install: the user `app` may not write to `/app` |
+| let Python find the packages and the code | `ENV NAME=value` sets an environment variable in the image, for the later instructions and for the container. Put `/app/.venv/bin` first in `PATH`, the list of directories where programs such as `python` are looked up, and set `PYTHONPATH=/app/src`, so `import book_analysis` works |
+| run the program as the user `app`, not as root | `USER app` makes all later instructions and the container run as `app`; put it after the install, because the user `app` may not write to `/app` |
 | run the analysis when the container starts; show its help when no arguments are given | `ENTRYPOINT ["python", "-m", "book_analysis.analyze"]` and `CMD ["--help"]`; arguments after the image name replace `CMD` |
 | contain no credentials | no `COPY` of `~/.aws` or `.env`, and no keys or passwords in `ENV`, `ARG`, or `LABEL` lines |
 
 Write the instructions in the order of the table: Docker runs them from top to bottom.
 
-**Why `python -m book_analysis.analyze`?** `-m` runs a module by its import name. With `PYTHONPATH=/app/src`, Python finds the package `book_analysis` in `/app/src/book_analysis/`, for `analyze.py` and for `report.py`, which imports from it. In Lab 07, `uv run` did that for you.
+**Why `python -m book_analysis.analyze`?** `-m` runs a module by its import name. With `PYTHONPATH=/app/src`, Python finds the package `book_analysis` in `/app/src/book_analysis/`, for `analyze.py` and for `report.py`, which imports from it. In Lab 07, `uv run` did that for you. This is also why `uv sync` runs with `--no-install-project`: it installs only the packages from `uv.lock`, and Python finds your own code through `PYTHONPATH`.
+
+**What are labels?** A `LABEL` stores information about the image as name–value pairs: its title, what it does, where its code is. Labels do not change what the image does. `docker inspect` shows them, and `ghcr.io` displays them on the package page. The names that start with `org.opencontainers.image.` are a standard that tools and registries understand.
 
 **Why no credentials in the image?** Anyone who can pull an image can recover every file that an instruction copied into it, even if a later instruction deleted the file, and can read every `ENV`, `ARG`, and `LABEL` value. In Step 4 the container gets its credentials at run time, from your computer.
 
@@ -165,7 +167,7 @@ Write the instructions in the order of the table: Docker runs them from top to b
 
 ### Step 2: Write the `.dockerignore`
 
-The `.` in `docker build .` is the **build context**: the current directory with all its files and subdirectories. When you run `docker build .` in the top directory of your clone, Docker receives everything in `lab-09-containers/`, also `.git/`, a `.venv/`, `results/`, or a `.env` file if you have one. The `COPY` instructions in your `Dockerfile` can copy files only from the build context into the image. A `.dockerignore` file lists files and directories that Docker leaves out of the build context. A file that is not in the build context cannot be copied by a `COPY` instruction into the image, not even by mistake. Create `.dockerignore` in the top directory, one pattern per line, as in `wordcount/.dockerignore` from Class 09. It must leave out:
+The `.` in `docker build .` is the **build context**: the current directory with all its files and subdirectories. When you run `docker build .` in the top directory of your clone, Docker receives everything in `lab-09-containers/`, also `.git/`, a `.venv/`, `results/`, or a `.env` file if you have one. The `COPY` instructions in your `Dockerfile` can copy files only from the build context into the image. A `.dockerignore` file lists files and directories that Docker leaves out of the build context. A file that is not in the build context cannot be copied by a `COPY` instruction into the image, not even by mistake. Create `.dockerignore` in the top directory, one pattern per line. It must leave out:
 
 | Add to `.dockerignore` | Why |
 | --- | --- |
@@ -179,7 +181,7 @@ Do not add `pyproject.toml`, `uv.lock`, or `src/` to `.dockerignore`: the `Docke
 
 ### Step 3: Build the image
 
-In the top directory of your clone, build the image from the `Dockerfile` in the current directory (`.`, the build context), and name it `book-analysis`. A tag is a version label: use the `version` from `pyproject.toml`, `0.1.0`, as the tag:
+In the top directory of your clone, build the image from the `Dockerfile` in the current directory (`.`, the build context), and name it `book-analysis`. A tag is a version name: use the `version` from `pyproject.toml`, `0.1.0`, as the tag:
 
 ```bash
 docker build -t book-analysis:0.1.0 .
@@ -194,13 +196,13 @@ docker images book-analysis
 Docker computes a **checksum** for every image: a long number (`sha256:...`) calculated from every byte of the image. If even one byte changes, the checksum is completely different. Two images with the same checksum are therefore identical, byte for byte, and a different checksum means a different image, even when the tag stayed the same. This checksum is called the image's **digest**, and its first 12 characters are the **image ID** that `docker images` shows. The tag `0.1.0` is only a name that points to the image. Show the full checksum:
 
 ```bash
-docker image inspect book-analysis:0.1.0 --format '{{.Id}}'
+docker inspect book-analysis:0.1.0 --format '{{.Id}}'
 ```
 
 Check the labels and the user:
 
 ```bash
-docker image inspect book-analysis:0.1.0 --format '{{json .Config.Labels}}'
+docker inspect book-analysis:0.1.0 --format '{{json .Config.Labels}}'
 ```
 
 ```bash
@@ -215,11 +217,13 @@ docker run --rm book-analysis:0.1.0
 
 It prints the help of `analyze.py`: the container ran `ENTRYPOINT` with the default arguments of `CMD`, `--help`.
 
-**Test the cache.** Run the same `docker build` command again: every step prints `CACHED`, the build takes a second, and `docker images` shows the same image ID: nothing changed, so it is the same image. If you had changed a file in `src/`, only the steps from `COPY src/` on would run again, and the result would be a new image with a new ID; the tag `0.1.0` would move to it.
+**Test the cache.** Run the same `docker build` command again: every step prints `CACHED`, the build takes a second, and `docker images` shows the same image ID: nothing changed, so it is the same image.
+
+Docker **caches** the result of each build step, and reuses it when the instruction and the files it uses are unchanged, **and** every step before it was reused too. This is why your `Dockerfile` copies `pyproject.toml` and `uv.lock` before `RUN uv sync`, and `src/` after it. If you change a file in `src/`, the steps up to `RUN uv sync` come from the cache, and only `COPY src/` and the steps after it run again: the rebuild takes seconds. Only a change to `pyproject.toml` or `uv.lock` runs the slow install again. Had the `Dockerfile` copied `src/` before `RUN uv sync`, every change to your code would reinstall all the packages. Either way, the result is a new image with a new ID, and the tag `0.1.0` moves to it.
 
 ### Step 4: Run the analysis in a container
 
-**Credentials at run time.** `analyze.py` reads the books from S3, and reads the Atlas settings from the environment variables `MONGODB_ATLAS_*` if they are set, and otherwise from the SSM parameter `mongodb_credentials` (the same code logic as in Lab 07). The container has none of your files and none of your variables. You give it both when it starts, with the options of `docker run` below, as in Class 09, Part 3.3.
+**Credentials at run time.** `analyze.py` reads the books from S3, and reads the Atlas settings from the environment variables `MONGODB_ATLAS_*` if they are set, and otherwise from the SSM parameter `mongodb_credentials` (the same code logic as in Lab 07). The container has none of your files and none of your variables. You give it both when it starts, with the options of `docker run` below. Class 09, Part 2.4 introduced `-v`.
 
 **The options of `docker run`.** Every `docker run` command in this step has the same form:
 
@@ -227,7 +231,7 @@ It prints the help of `analyze.py`: the container ran `ENTRYPOINT` with the defa
 docker run [options for Docker] IMAGE [arguments for the program in the container]
 ```
 
-Options before the image name tell Docker how to start the container. Everything after the image name goes to the program inside the container. This step uses four options:
+Options before the image name tell Docker how to start the container. Everything after the image name goes to the program inside the container. Besides `-d` and `--name` (Class 09, Part 2.1), this step uses four options:
 
 - `--rm` **removes the container when its program ends.** Without `--rm`, a container that has ended stays on your computer as a stopped container: `docker ps -a` lists it, and `docker rm` removes it. Use `--rm` for one-off runs. The full analysis below runs without `--rm` on purpose, so that you can inspect the stopped container and save its output.
 - `-v HOST_DIRECTORY:CONTAINER_DIRECTORY` **mounts a directory** of your computer into the container. The container does not get a copy: it reads, and could write, the files on your computer. `:ro` at the end makes the mount **read-only**, so the container cannot change or delete these files. With `-v ~/.aws:/home/app/.aws:ro`, your AWS credentials directory `~/.aws` (outside the container) appears as `/home/app/.aws` inside the container. `/home/app/.aws` is the home directory of the user `app` inside the container, where `boto3` in the container looks for credentials. **The credentials never become part of the image; they are in the container only while it runs.**
@@ -273,7 +277,7 @@ docker run -d --name analysis -v ~/.aws:/home/app/.aws:ro \
 docker ps
 ```
 
-`docker ps` lists the running container: its ID, image, command, `STATUS` (`Up 3 seconds`), and name. Follow what it prints; `Ctrl+C` stops following, not the container. Because you named the container in the `docker run` command, you can use that name, instead of its long ID, to follow the container's logs:
+`docker ps` lists the running container: its ID, image, command, `STATUS` (`Up 3 seconds`), and name. Because you named the container in the `docker run` command, you can use that name, instead of its long ID, to follow the container's logs. `-f` (follow) keeps printing new lines as the analysis writes them; `Ctrl+C` stops following, not the container:
 
 ```bash
 docker logs -f analysis
@@ -383,13 +387,13 @@ docker tag book-analysis:0.1.0 ghcr.io/YOUR_USERNAME/book-analysis:0.1.0
 docker push ghcr.io/YOUR_USERNAME/book-analysis:0.1.0
 ```
 
-`docker push` uploads the image, and its last line names the image's **digest** on the registry, `sha256:...`. Save what the registry now holds:
+`docker push` uploads the image, and its last line names the image's **digest** on the registry, `sha256:...`. Save what the registry now holds; `tee` prints the output and also writes it into the file:
 
 ```bash
 docker buildx imagetools inspect ghcr.io/YOUR_USERNAME/book-analysis:0.1.0 | tee results/image.txt
 ```
 
-The output has the image name, its digest, and its platform: the CPU type of your computer, `linux/arm64` on a Mac with an Apple chip, `linux/amd64` on most other computers. An image for one CPU type runs on the other only through emulation, or not at all; [Class 09, Part 4: Multi-platform builds](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#multi-platform-builds) builds one for both.
+The output has the image name, its digest, and its platform: the CPU type of your computer, `linux/arm64` on a Mac with an Apple chip, `linux/amd64` on most other computers. An image for one CPU type runs on the other only through emulation, or not at all; [Class 09, Part 3: Multi-platform builds](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#multi-platform-builds) builds one for both.
 
 **Find it on GitHub.** Open `https://github.com/YOUR_USERNAME?tab=packages`. The package `book-analysis` is there, **private**, the default for new packages, so only you can pull it. Because of the `source` label, it is linked to your fork. Keep it private: a package that was made public cannot be made private again ([GitHub docs: Configuring visibility](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility#configuring-visibility-of-packages-for-your-personal-account)).
 
@@ -549,13 +553,13 @@ The goal is that you can write a `Dockerfile` and read what Docker tells you, no
 - `invalid reference format: repository name must be lowercase`**.** Write the image name in lowercase, also your GitHub user name.
 - `denied` **or** `unauthorized` **on** `docker pull`**.** The package is private: log in first. Do not make the package public instead.
 - **The package is not linked to your fork.** The `source` label is not the URL of your fork: fix the `LABEL`, build, and push again; or link it on the package page under **Package settings** → **Connect repository**.
-- `exec format error`**.** The image was built for another CPU type than the computer it runs on (`arm64` on a Mac with an Apple chip, `amd64` on EC2 and HPC). See [Class 09, Part 4: Multi-platform builds](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#multi-platform-builds).
+- `exec format error`**.** The image was built for another CPU type than the computer it runs on (`arm64` on a Mac with an Apple chip, `amd64` on EC2 and HPC). See [Class 09, Part 3: Multi-platform builds](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#multi-platform-builds).
 
 ## Resources
 
 **This course**
 
-- [Class 09: Containers](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md): building and versioning `my_image`, the build cache, `wordcount`, credentials at run time, and pushing to `ghcr.io`
+- [Class 09: Containers](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md): building and versioning `my_image`, `ENTRYPOINT` and `CMD`, mounting a directory, and pushing to `ghcr.io`
 
 **Docker**
 
@@ -578,7 +582,7 @@ The goal is that you can write a `Dockerfile` and read what Docker tells you, no
 - The image still needs AWS and Atlas from outside: here your credentials directory and your variables. A container on a computer without them cannot do any work.
 - Without a registry, the image lives only on the computer where it was built; the optional Step 5 keeps it on `ghcr.io`.
 - You built the image by hand. Real projects build and push images in CI, for example with GitHub Actions, from a tagged commit, so that every image traces back to the exact code it contains.
-- The image also contains `uv`, which it needs only during the build. A **multi-stage build**, as in `wordcount/Dockerfile` (Class 09, Part 3), leaves build tools out of the final image ([Docker docs: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)).
-- The image is built for the CPU type of your computer only. A multi-platform build (Class 09, Part 4) adds the other one.
+- The image also contains `uv`, which it needs only during the build. A **multi-stage build** leaves build tools out of the final image ([Docker docs: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/)).
+- The image is built for the CPU type of your computer only. A multi-platform build (Class 09, Part 3) adds the other one.
 - `python:3.13-slim` is a tag that moves with every Python patch release, so a rebuild next month can give a different image. Pinning the base image by its digest makes builds repeatable, and tools such as Dependabot propose updates.
 - The analysis is a batch job: someone has to start a container to run it. **Coming up in Lab 10:** a web API that answers requests for the documents at any time.

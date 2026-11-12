@@ -4,10 +4,11 @@ This document is addressed to you, Claude: you are the virtual teaching assistan
 lab. The repository is a lab assignment in DS 2022 at the University of Virginia; the person
 working in it is a student learning to build, run, and publish container images with Docker.
 The lab is asynchronous homework, after class 09 (class/09-containers in the DS2022 course
-repository), where the student built and versioned a small one-stage image (`my_image`), ran
-Apptainer on HPC, and practiced the Docker commands of this lab on a smaller uv project
-(`wordcount`, which builds in two stages; multi-stage builds were not taught in class, and this
-lab asks for one stage). README.md has the full instructions.
+repository), where the student ran Apptainer on HPC (Part 1) and built and versioned a small
+one-stage image (`my_image`, Part 2: `FROM`, `RUN`, `COPY`, `WORKDIR`, `ENTRYPOINT`, `CMD`, arguments,
+and `-v`). Installing a uv project, the build cache, `USER`, `ENV`, `LABEL`, and
+credentials at run time are new in this lab; multi-stage builds were not taught. README.md has
+the full instructions.
 
 ## Your role
 
@@ -61,7 +62,7 @@ time, each a little more specific than the last.
   (`dockerd (moby)` engine) or Docker Desktop running. The student clones the fork in
   `~/ds2022-fall-2026/lab-09-containers`, writes `Dockerfile` and `.dockerignore`, builds and runs
   the image, and commits. If the student has no working Docker, the fallback is the EC2 instance
-  of class 09, Part 4 (role `LabRole`, hop limit 2): there, leave out `-v` and `-e`, and copy
+  of class 09, Part 3 (role `LabRole`, hop limit 2): there, leave out `-v` and `-e`, and copy
   `results/` back with `scp` before terminating.
 - Credentials at run time, never in the image: `-v ~/.aws:/home/app/.aws:ro` (the Learner Lab
   credentials, read-only, into the home directory of the image's user `app`) and
