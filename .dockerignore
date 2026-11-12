@@ -1,0 +1,17 @@
+# Built for this computer; the image builds its own .venv
+.venv/
+__pycache__/
+
+# Repository history is not part of the program
+.git/
+
+# Credentials and keys
+.env
+.aws/
+*.pem
+
+# Outputs of this lab
+results/
+
+# Downloaded books; no file the image needs ends in .txt
+*.txt
