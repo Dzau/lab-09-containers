@@ -1,0 +1,22 @@
+# Python virtual environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+
+# Secrets: never commit credentials, tokens, or private keys
+.env
+.aws/
+*credentials*
+*.pem
+.docker/
+
+# Container image archives (images live in a registry, not in git)
+*.tar
+
+# Downloaded books (they live in S3)
+pg*.txt
