@@ -136,25 +136,26 @@ It prints `3`. If not, follow [MongoDB Atlas setup](https://github.com/ksiller/D
 
 ### Step 1: Write the `Dockerfile`
 
-Create a file named `Dockerfile` (no extension) in the top directory of your clone. It packages the code in `src/` with the packages in `uv.lock`. Your starting point is `my_image` from [Class 09, Part 2](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#part-2-docker-on-your-computer): a `Dockerfile` with one `FROM` line, `WORKDIR`, `ENTRYPOINT`, and `CMD`. New here: the image installs a Python uv project from `pyproject.toml` and `uv.lock`, and runs it as an ordinary user. The requirements table lists every instruction, with a hint for each. Keep in mind that the code is in `src/book_analysis/`, and that `report.py` imports from `analyze.py` as `book_analysis.analyze`.
+Create a file named `Dockerfile` (no extension) in the top directory of your clone. It packages the code in `src/` with the packages in `uv.lock`. Your starting point is `my_image` from [Class 09, Part 2](https://github.com/ksiller/DS2022/blob/main/class/09-containers/README.md#part-2-docker-on-your-computer): a `Dockerfile` with one `FROM` line, `WORKDIR`, `ENTRYPOINT`, and `CMD`. New here: the image installs a Python uv project from `pyproject.toml` and `uv.lock`, and runs it as an ordinary user. The table below lists every instruction, in order, with what it does. Keep in mind that the code is in `src/book_analysis/`, and that `report.py` imports from `analyze.py` as `book_analysis.analyze`.
 
-Your `Dockerfile` must:
+Your `Dockerfile` has these instructions, in this order; Docker runs them from top to bottom:
 
-| Requirement | Hint |
-| --- | --- |
-| start from the official Python image in the version of `.python-version`, in its small `slim` variant | one `FROM` line: `FROM python:3.13-slim` |
-| describe the image with the standard labels `title` (`book-analysis`), `description`, and `source` (the URL of **your fork**) | `LABEL org.opencontainers.image.title=...`; `source` says where the code is, and on `ghcr.io` it links the image to your repository |
-| copy the `uv` program from the official uv image, in a fixed version | `COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /bin/uv`; `--from` copies a file out of another image |
-| create an ordinary user named `app`, and work in the directory `/app` | `RUN useradd --create-home app`, then `WORKDIR /app` |
-| copy **only** `pyproject.toml` and `uv.lock` before the install, so that changing the code does not reinstall the packages | `COPY` the two files, then `RUN uv sync ...`; Step 3 explains why |
-| install exactly the packages of `uv.lock`, without the project itself and without development tools | `uv sync` with `--frozen`, `--no-dev`, and `--no-install-project` installs into `/app/.venv`; add `--no-cache`, so that uv's download cache does not stay in the image |
-| copy the directory `src/` after the install | `COPY src/ ./src/` |
-| let Python find the packages and the code | `ENV NAME=value` sets an environment variable in the image, for the later instructions and for the container. Put `/app/.venv/bin` first in `PATH`, the list of directories where programs such as `python` are looked up, and set `PYTHONPATH=/app/src`, so `import book_analysis` works |
-| run the program as the user `app`, not as root | `USER app` makes all later instructions and the container run as `app`; put it after the install, because the user `app` may not write to `/app` |
-| run the analysis when the container starts; show its help when no arguments are given | `ENTRYPOINT ["python", "-m", "book_analysis.analyze"]` and `CMD ["--help"]`; arguments after the image name replace `CMD` |
-| contain no credentials | no `COPY` of `~/.aws` or `.env`, and no keys or passwords in `ENV`, `ARG`, or `LABEL` lines |
+| # | Instruction | What it does |
+| --- | --- | --- |
+| 1 | `FROM python:3.13-slim` | starts from the official Python image, in the version of `.python-version`, in its small `slim` variant |
+| 2 | `LABEL org.opencontainers.image.title=...` | describes the image with three standard labels: `title` (`book-analysis`), `description`, and `source` (the URL of **your fork**; on `ghcr.io` it links the image to your repository) |
+| 3 | `COPY --from=ghcr.io/astral-sh/uv:0.12.18 /uv /bin/uv` | copies the `uv` program, in a fixed version, out of the official uv image |
+| 4 | `RUN useradd --create-home app` | creates an ordinary user named `app` |
+| 5 | `WORKDIR /app` | makes `/app` the working directory |
+| 6 | `COPY pyproject.toml uv.lock ./` | copies **only** the two dependency files before the install, so that changing the code does not reinstall the packages; Step 3 explains why |
+| 7 | `RUN uv sync --frozen --no-dev --no-install-project --no-cache` | installs exactly the packages of `uv.lock` into `/app/.venv`: `--frozen` fails instead of changing `uv.lock`, `--no-dev` leaves out development tools, `--no-install-project` leaves out the project itself, and `--no-cache` makes sure that uv's download cache does not stay in the image. This reduces the final image size and download time |
+| 8 | `COPY src/ ./src/` | copies your code, after the install |
+| 9 | `ENV ...` | `ENV NAME=value` sets an environment variable in the image, for the later instructions and for the container. Put `/app/.venv/bin` first in `PATH`, the list of directories where programs such as `python` are looked up, and set `PYTHONPATH=/app/src`, so that `import book_analysis` works |
+| 10 | `USER app` | makes the container run as `app`, not as root; it comes after the install, because `app` may not write to `/app` |
+| 11 | `ENTRYPOINT ["python", "-m", "book_analysis.analyze"]` | runs the analysis when the container starts |
+| 12 | `CMD ["--help"]` | the default argument: shows the help when you give no arguments; arguments after the image name replace it |
 
-Write the instructions in the order of the table: Docker runs them from top to bottom.
+The `Dockerfile` must contain no credentials: no `COPY` of `~/.aws` or `.env`, and no keys or passwords in `ENV`, `ARG`, or `LABEL` lines.
 
 **Why `python -m book_analysis.analyze`?** `-m` runs a module by its import name. With `PYTHONPATH=/app/src`, Python finds the package `book_analysis` in `/app/src/book_analysis/`, for `analyze.py` and for `report.py`, which imports from it. In Lab 07, `uv run` did that for you. This is also why `uv sync` runs with `--no-install-project`: it installs only the packages from `uv.lock`, and Python finds your own code through `PYTHONPATH`.
 
@@ -163,7 +164,7 @@ Write the instructions in the order of the table: Docker runs them from top to b
 **Why no credentials in the image?** Anyone who can pull an image can recover every file that an instruction copied into it, even if a later instruction deleted the file, and can read every `ENV`, `ARG`, and `LABEL` value. In Step 4 the container gets its credentials at run time, from your computer.
 
 > [!TIP]
-> If you get stuck, ask Claude Code to explain an instruction, to help you write one, or to review your file: *"I wrote my `Dockerfile`. Check it against the requirements table in Step 1 of the README and list what is missing or wrong."* (see [Using Claude Code](#using-claude-code)).
+> If you get stuck, ask Claude Code to explain an instruction, to help you write one, or to review your file: *"I wrote my `Dockerfile`. Check it against the instruction table in Step 1 of the README and list what is missing or wrong."* (see [Using Claude Code](#using-claude-code)).
 
 ### Step 2: Write the `.dockerignore`
 
@@ -508,7 +509,7 @@ The goal is that you can write a `Dockerfile` and read what Docker tells you, no
 - "Help me write the instruction that installs the packages from `uv.lock`. Explain each option."
 - "What is the difference between `ENTRYPOINT` and `CMD`, and what happens to each when I add arguments after the image name?"
 - "What does `python -m` do, and why does `PYTHONPATH` matter for it?"
-- "I wrote my `Dockerfile`. Check it against the requirements table in Step 1 of the README and list what is missing or wrong."
+- "I wrote my `Dockerfile`. Check it against the instruction table in Step 1 of the README and list what is missing or wrong."
 - "I wrote `.dockerignore`. What could still end up in my build context that should not?"
 
 **Prompts for building, running, and pushing (Steps 3 to 5):**
