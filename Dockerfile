@@ -3,7 +3,7 @@ FROM python:3.13-slim
 
 # 2. Standard OCI labels describing the image
 LABEL org.opencontainers.image.title="book-analysis" \
-      org.opencontainers.image.description="Lab 09: the Lab 07 book analysis (S3 books -> MongoDB Atlas) packaged as a container image" \
+      org.opencontainers.image.description="Lab 09: Lab 07 book analysis (S3 books -> MongoDB Atlas) packaged as a container image" \
       org.opencontainers.image.source="https://github.com/Dzau/lab-09-containers"
 
 # 3. The uv program, in a fixed version, copied from the official uv image
